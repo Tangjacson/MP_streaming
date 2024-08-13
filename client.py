@@ -1,5 +1,5 @@
 import numpy as np
-from server import Server
+from mp import Server
 import load_trace
 import matplotlib.pyplot as plt
 import itertools
@@ -49,7 +49,7 @@ def get_chunk_size(quality, index):
     return sizes[quality]
 
 
-class client:
+class Client:
     def __init__(self):
         np.random.seed(RANDOM_SEED)
 
@@ -80,6 +80,7 @@ class client:
 
         video_count = 0
 
+
         # make chunk combination options
         for combo in itertools.product([0,1,2,3,4,5], repeat=MPC_FUTURE_CHUNK_COUNT):
             CHUNK_COMBO_OPTIONS.append(combo)
@@ -89,7 +90,8 @@ class client:
             # this is to make the framework similar to the real
             delay, sleep_time, buffer_size, rebuf, \
             video_chunk_size, next_video_chunk_sizes, \
-            end_of_video, video_chunk_remain = \
+            end_of_video, video_chunk_remain, actual_video_chunk_size, \
+            psnr, msssim= \
                 self.server.get_video_chunk(bit_rate)
 
             time_stamp += delay  # in ms
@@ -126,7 +128,11 @@ class client:
                         str(rebuf) + '\t' +
                         str(video_chunk_size) + '\t' +
                         str(delay) + '\t' +
-                        str(reward) + '\n')
+                        str(reward) + '\t' +
+                        str(actual_video_chunk_size) + '\t' +
+                        str(psnr) + '\t' +
+                        str(msssim) + '\n'
+                        )
             log_file.flush()
 
             # retrieve previous state
@@ -270,3 +276,5 @@ class client:
                 log_path = LOG_FILE + '_' + all_file_names[self.server.trace_idx]
                 log_file = open(log_path, 'w')
 
+    def update_path(self, path_list):
+        self.path_list = path_list

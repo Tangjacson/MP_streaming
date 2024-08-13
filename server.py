@@ -1,4 +1,8 @@
 import numpy as np
+import threading
+import time
+from DataType import Stream, Path
+
 
 MILLISECONDS_IN_SECOND = 1000.0
 B_IN_MB = 1000000.0
@@ -13,9 +17,8 @@ PACKET_PAYLOAD_PORTION = 0.95
 LINK_RTT = 80  # millisec
 PACKET_SIZE = 1500  # bytes
 VIDEO_SIZE_FILE = './video_size_'
-
-
- 
+NUM_PATH = 4
+PATH_QUEUE_WINDOW = 5
 
 
 class Server:
@@ -48,10 +51,31 @@ class Server:
                 for line in f:
                     self.video_size[bitrate].append(int(line.split()[0]))
         self.path_list = []
+        self.stream_list = []
 
-    def update_path(self, path_list):
-        self.path_list = path_list
+    def monitor_path_change(self):
+        """
+        This function monitors for any changes in path conditions and updates the path_list.
+        """
+        while True:
+            # update path thread
+            for i range(NUM_PATH):
+                self.update_path(self.current_bw[i], self.current_rtt[i])
 
+
+    def update_path(self, current_bw, current_rtt):
+        # drop the path if the bandwidth is zero
+        self.path_list = []
+        for i range(NUM_PATH):
+            if self.cooked_bw[i]:
+                if current_rtt[i] > 0:
+                    self.path_list.append(Path(i, self.current_bw[i], self.current_rtt[i]))
+
+    def segment(self, chunk_size):
+        self.stream_list = []
+        for i in range(chunk_size//20000):
+            self.stream_list.append(Stream(i, 20000))
+        self.stream_list.append(Stream(i+1, chunk_size%20000))
 
     def get_video_chunk(self, quality):
 
@@ -59,16 +83,26 @@ class Server:
         assert quality < BITRATE_LEVELS
 
         video_chunk_size = self.video_size[quality][self.video_chunk_counter]
-
+        self.segment(video_chunk_size)
         # use the delivery opportunity in mahimahi
         delay = 0.0  # in ms
         video_chunk_counter_sent = 0  # in bytes
+
+        # path monitor thread
+        path_monitor_thread = threading.Thread(target=self.monitor_path_change)
+        path_monitor_thread.daemon = True
+        path_monitor_thread.start()
 
         while True:  # download video chunk over mahimahi with MPQUIC scheduler
             throughput = self.cooked_bw[self.mahimahi_ptr] \
                          * B_IN_MB / BITS_IN_BYTE
             duration = self.cooked_time[self.mahimahi_ptr] \
                        - self.last_mahimahi_time
+            ## throughputs are list of throughputs of each path
+            throughputs = []
+            for i in range(8):
+                if self.cooked_bw[self.mahimahi_ptr][i]>0:
+                    throughputs.append(self.cooked_bw[self.mahimahi_ptr][i] * B_IN_MB / BITS_IN_BYTE)
 
             packet_payload = throughput * duration * PACKET_PAYLOAD_PORTION
 
@@ -169,3 +203,28 @@ class Server:
             next_video_chunk_sizes, \
             end_of_video, \
             video_chunk_remain
+    
+
+
+class AdaptiveThread:
+    def __init__(self, name, target):
+        self.name = name
+        self.resume_event = threading.Event()
+        self.stop_event = threading.Event()
+        self.resume_event.set()  # Initially set to allow the thread to run
+        self.thread = threading.Thread(target=target)
+    
+    def start(self):
+        self.thread.start()
+
+    def pause(self):
+        self.resume_event.clear()  # Clear the event, pausing the thread
+    
+    def resume(self):
+        self.resume_event.set()  # Set the event, resuming the thread
+
+    def stop(self):
+        self.stop_event.set()  # Signal the thread to stop
+        self.resume_event.set()  # Ensure the thread isn't stuck in wait
+
+

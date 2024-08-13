@@ -5,8 +5,9 @@ class Path:
     def __init__(self, id):
         self.id = id
 
-    def setup(self,rtt):
-        self.rtt = 0
+    def setup(self, bw, rtt):
+        self.rtt = rtt
+        self.baåndwidth = bw
         self.stream_list = []
     
     def close(self):
